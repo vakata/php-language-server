@@ -429,7 +429,7 @@ class DefinitionResolver
             if ($expr instanceof Node\Expr\Variable && $expr->name === 'this') {
                 $classNode = getClosestNode($expr, Node\Stmt\Class_::class);
                 if ($classNode) {
-                   return self::resolveClassNameToType($classNode->namespacedName);
+                    return self::resolveClassNameToType($classNode->namespacedName);
                 }
                 return new Types\This;
             }
