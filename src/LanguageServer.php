@@ -107,6 +107,11 @@ class LanguageServer extends AdvancedJsonRpc\Dispatcher
     protected $definitionResolver;
 
     /**
+     * @var string
+     */
+    protected $cachePath;
+
+    /**
      * @param PotocolReader  $reader
      * @param ProtocolWriter $writer
      */
@@ -181,7 +186,44 @@ class LanguageServer extends AdvancedJsonRpc\Dispatcher
                 $this->contentRetriever = new FileSystemContentRetriever;
             }
 
+            // Find composer.json
+            if ($this->composerJson === null) {
+                $composerJsonFiles = yield $this->filesFinder->find(Path::makeAbsolute('**/composer.json', $rootPath));
+                if (!empty($composerJsonFiles)) {
+                    $this->composerJson = json_decode(yield $this->contentRetriever->retrieve($composerJsonFiles[0]));
+                }
+            }
+            // Find composer.lock
+            $hash = null;
+            $version = 1;
+            if ($this->composerLock === null) {
+                $composerLockFiles = yield $this->filesFinder->find(Path::makeAbsolute('**/composer.lock', $rootPath));
+                if (!empty($composerLockFiles)) {
+                    $this->composerLock = json_decode(yield $this->contentRetriever->retrieve($composerLockFiles[0]));
+                    $hash = ((array)$this->composerLock)['content-hash'] ?? ((array)$this->composerLock)['hash'];
+                }
+            }
+
             $dependenciesIndex = new DependenciesIndex;
+            if ($rootPath && $hash) {
+                $this->cachePath = $rootPath . DIRECTORY_SEPARATOR . '.phpls' . DIRECTORY_SEPARATOR;
+                if (!is_dir($this->cachePath)) {
+                    mkdir($this->cachePath);
+                }
+                if (is_file($this->cachePath . 'hash') &&
+                    is_file($this->cachePath . 'version') &&
+                    is_file($this->cachePath . 'index') &&
+                    $hash === file_get_contents($this->cachePath . 'hash') &&
+                    $version === file_get_contents($this->cachePath . 'version')
+                ) {
+                    $dependenciesIndex = unserialize(file_get_contents($this->cachePath . 'index'));
+                } else {
+                    @unlink($this->cachePath . 'index');
+                }
+                file_put_contents($this->cachePath . 'hash', $hash);
+                file_put_contents($this->cachePath . 'version', $version);
+            }
+
             $sourceIndex = new Index;
             $projectIndex = new ProjectIndex($sourceIndex, $dependenciesIndex);
             $stubsIndex = StubsIndex::read();
@@ -198,20 +240,8 @@ class LanguageServer extends AdvancedJsonRpc\Dispatcher
 
             if ($rootPath !== null) {
                 yield $this->index($rootPath);
-            }
-
-            // Find composer.json
-            if ($this->composerJson === null) {
-                $composerJsonFiles = yield $this->filesFinder->find(Path::makeAbsolute('**/composer.json', $rootPath));
-                if (!empty($composerJsonFiles)) {
-                    $this->composerJson = json_decode(yield $this->contentRetriever->retrieve($composerJsonFiles[0]));
-                }
-            }
-            // Find composer.lock
-            if ($this->composerLock === null) {
-                $composerLockFiles = yield $this->filesFinder->find(Path::makeAbsolute('**/composer.lock', $rootPath));
-                if (!empty($composerLockFiles)) {
-                    $this->composerLock = json_decode(yield $this->contentRetriever->retrieve($composerLockFiles[0]));
+                if ($this->cachePath) {
+                    @file_put_contents($this->cachePath . 'index', serialize($dependenciesIndex));
                 }
             }
 
