@@ -196,6 +196,7 @@ class LanguageServer extends AdvancedJsonRpc\Dispatcher
             // Find composer.lock
             $hash = null;
             $version = '1';
+            $skipVendor = false;
             if ($this->composerLock === null) {
                 $composerLockFiles = yield $this->filesFinder->find(Path::makeAbsolute('**/composer.lock', $rootPath));
                 if (!empty($composerLockFiles)) {
@@ -216,7 +217,10 @@ class LanguageServer extends AdvancedJsonRpc\Dispatcher
                     $hash === file_get_contents($this->cachePath . 'hash') &&
                     $version === file_get_contents($this->cachePath . 'version')
                 ) {
-                    $dependenciesIndex = unserialize(file_get_contents($this->cachePath . 'index'));
+                    try {
+                        $dependenciesIndex = unserialize(file_get_contents($this->cachePath . 'index'));
+                        $skipVendor = true;
+                    } catch (\Exception $ignore) { }
                 } else {
                     @unlink($this->cachePath . 'index');
                 }
@@ -239,7 +243,7 @@ class LanguageServer extends AdvancedJsonRpc\Dispatcher
             );
 
             if ($rootPath !== null) {
-                yield $this->index($rootPath);
+                yield $this->index($rootPath, $skipVendor);
                 if ($this->cachePath) {
                     @file_put_contents($this->cachePath . 'index', serialize($dependenciesIndex));
                 }
@@ -316,11 +320,12 @@ class LanguageServer extends AdvancedJsonRpc\Dispatcher
      * Will read and parse the passed source files in the project and add them to the appropiate indexes
      *
      * @param string $rootPath
+     * @param bool $skipVendor
      * @return Promise <void>
      */
-    protected function index(string $rootPath): Promise
+    protected function index(string $rootPath, bool $skipVendor = false): Promise
     {
-        return coroutine(function () use ($rootPath) {
+        return coroutine(function () use ($rootPath, $skipVendor) {
 
             $pattern = Path::makeAbsolute('**/*.php', $rootPath);
             $uris = yield $this->filesFinder->find($pattern);
@@ -333,6 +338,9 @@ class LanguageServer extends AdvancedJsonRpc\Dispatcher
                 $this->client->window->logMessage(MessageType::INFO, $run);
                 foreach ($uris as $i => $uri) {
                     if ($this->documentLoader->isOpen($uri)) {
+                        continue;
+                    }
+                    if ($skipVendor && strpos(Uri\parse($uri)['path'], '/vendor/') !== false) {
                         continue;
                     }
 
