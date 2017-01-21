@@ -195,7 +195,7 @@ class LanguageServer extends AdvancedJsonRpc\Dispatcher
             }
             // Find composer.lock
             $hash = null;
-            $version = 1;
+            $version = '1';
             if ($this->composerLock === null) {
                 $composerLockFiles = yield $this->filesFinder->find(Path::makeAbsolute('**/composer.lock', $rootPath));
                 if (!empty($composerLockFiles)) {
